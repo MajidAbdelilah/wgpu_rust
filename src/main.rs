@@ -1,5 +1,8 @@
+use core::time;
+use std::thread::sleep;
+
 use glfw::{Action, Context, Key, Window, fail_on_errors};
-use wgpu::wgc::instance;
+use wgpu::wgc::{device::queue, instance};
 
 struct State<'a> {
     instance: wgpu::Instance,
@@ -11,23 +14,26 @@ struct State<'a> {
     window: &'a mut Window,
 }
 
-impl<'a> State<'a> {
-    async fn new(window: &'a mut Window) -> Self {
-        let size = window.get_size();
+impl<'a> State<'a> 
+{
+
+    async fn new(window: &'a mut Window) -> Self 
+    {
+        let size = window.get_framebuffer_size();
 
         let instance_descriptor = wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: wgpu::Backends::VULKAN,
             ..Default::default()
         };
         let instance = wgpu::Instance::new(&instance_descriptor);
 
         let target = unsafe {
-            wgpu::SurfaceTargetUnsafe::from_window((&window))
+            wgpu::SurfaceTargetUnsafe::from_window(&window)
         }.unwrap();
         let surface = unsafe {
             instance.create_surface_unsafe(target)  
         }.unwrap();
-
+        // let surface = instance.create_surface(window.render_context()).unwrap();
 
         let adapter_descriptor = wgpu::RequestAdapterOptionsBase{
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -70,9 +76,71 @@ impl<'a> State<'a> {
             window
         }
     }
+
+    fn render(&mut self) -> Result<(), wgpu::SurfaceError>
+    {
+        let drawable = self.surface.get_current_texture()?;
+        let texture_view_descriptor = wgpu::TextureViewDescriptor::default();
+        let texture_view = drawable.texture.create_view(&texture_view_descriptor);
+
+        let command_encoder_descriptor = wgpu::CommandEncoderDescriptor{
+            label: Some("render encoder"),
+        };
+        let mut command_encoder = self.device.create_command_encoder(&command_encoder_descriptor);
+
+        let color_attachment = wgpu::RenderPassColorAttachment{
+            view: &texture_view,
+            resolve_target: None,
+            ops: wgpu::Operations { 
+                load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.25, g: 0.0, b: 0.5, a: 0.0 }),
+                store: wgpu::StoreOp::Store, 
+            },
+            depth_slice: None,
+        };
+        let render_pass_descriptor = wgpu::RenderPassDescriptor{
+            label: Some("render pass"),
+            color_attachments: &[Some(color_attachment)],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        };
+
+        command_encoder.begin_render_pass(&render_pass_descriptor);
+        self.queue.submit(std::iter::once(command_encoder.finish()));
+
+        drawable.present();
+        
+        Ok(())
+    }
+
+    fn resize(&mut self, new_size: (i32, i32))
+    {
+        if(new_size.0 <= 0 || new_size.1 <= 0)
+        {
+            return;
+        }
+        
+        self.size = new_size;
+        self.config.width = new_size.0 as u32;
+        self.config.height = new_size.1 as u32;
+
+        self.surface.configure(&self.device, &self.config);
+    }
+
+    fn update_surface(&mut self)
+    {
+        let target = unsafe {
+            wgpu::SurfaceTargetUnsafe::from_window((&self.window))
+        }.unwrap();
+        self.surface = unsafe {
+           self.instance.create_surface_unsafe(target)  
+        }.unwrap();
+
+    }
 }
 
-fn main() {
+async fn run() 
+{
     let mut glfw = glfw::init(fail_on_errors!()).unwrap();
     let (mut window, events) = glfw
         .create_window(800, 600, "wgpu", glfw::WindowMode::Windowed)
@@ -80,14 +148,25 @@ fn main() {
 
     // window.set_all_polling(true);
     window.set_key_polling(true);
+    window.set_framebuffer_size_polling(true);
     window.make_current();
 
-    while !window.should_close() {
+    let mut state = State::new(&mut window).await;
+
+    while !state.window.should_close() {
         glfw.poll_events();
         for (_, event) in glfw::flush_messages(&events) {
             match event {
-                glfw::WindowEvent::Key(glfw::Key::Escape, _, glfw::Action::Press, _) => {
-                    window.set_should_close(true);
+                glfw::WindowEvent::Key(glfw::Key::Escape, _, glfw::Action::Press, _) => 
+                {
+                    state.window.set_should_close(true);
+                }
+
+                glfw::WindowEvent::FramebufferSize(width, height ) =>
+                {
+                    state.update_surface();
+                    state.resize((width, height));
+            
                 }
 
                 e => {
@@ -95,6 +174,23 @@ fn main() {
                 }
             }
         }
-        window.swap_buffers();
+        
+        match state.render()
+        {
+            Ok(_) => {},
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                state.update_surface();
+                state.resize(state.size);
+            }
+            Err(e) => {eprintln!("{:?}", e)},
+        }
+        
+        state.window.swap_buffers();
+        sleep(time::Duration::from_micros(56000));
     }
+}
+
+fn main()
+{
+    pollster::block_on(run());
 }
