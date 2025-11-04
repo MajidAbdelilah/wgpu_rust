@@ -1,7 +1,7 @@
 use core::time;
-use std::thread::sleep;
+use std::{thread::sleep};
 
-use glfw::{Action, Context, Key, Window, fail_on_errors};
+use glfw::{Action, Context, Key, Window, WindowEvent, WindowHint, fail_on_errors};
 use wgpu::wgc::{device::queue, instance};
 
 struct State<'a> {
@@ -22,21 +22,17 @@ impl<'a> State<'a>
         let size = window.get_framebuffer_size();
 
         let instance_descriptor = wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
+            backends: wgpu::Backends::all(),
             ..Default::default()
         };
         let instance = wgpu::Instance::new(&instance_descriptor);
-
-        let target = unsafe {
-            wgpu::SurfaceTargetUnsafe::from_window(&window)
-        }.unwrap();
-        let surface = unsafe {
-            instance.create_surface_unsafe(target)  
-        }.unwrap();
+        println!("bitch!!!");
+        ;
+        let surface = instance.create_surface(window.render_context()).unwrap();
         // let surface = instance.create_surface(window.render_context()).unwrap();
 
         let adapter_descriptor = wgpu::RequestAdapterOptionsBase{
-            power_preference: wgpu::PowerPreference::HighPerformance,
+            power_preference: wgpu::PowerPreference::default(),
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         };
@@ -92,7 +88,7 @@ impl<'a> State<'a>
             view: &texture_view,
             resolve_target: None,
             ops: wgpu::Operations { 
-                load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.25, g: 0.0, b: 0.5, a: 0.0 }),
+                load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.45, g: 0.45, b: 0.0, a: 0.0 }),
                 store: wgpu::StoreOp::Store, 
             },
             depth_slice: None,
@@ -129,31 +125,29 @@ impl<'a> State<'a>
 
     fn update_surface(&mut self)
     {
-        let target = unsafe {
-            wgpu::SurfaceTargetUnsafe::from_window((&self.window))
-        }.unwrap();
-        self.surface = unsafe {
-           self.instance.create_surface_unsafe(target)  
-        }.unwrap();
-
+        self.surface = self.instance.create_surface(self.window.render_context()).unwrap();
     }
 }
 
 async fn run() 
 {
     let mut glfw = glfw::init(fail_on_errors!()).unwrap();
+    glfw.window_hint(WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
+
+    // glfw.window_hint(WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
     let (mut window, events) = glfw
-        .create_window(800, 600, "wgpu", glfw::WindowMode::Windowed)
-        .expect("failed to create the window!?!?!");
+        .create_window(800, 600, "wgpu", glfw::WindowMode::Windowed).unwrap();
+        
 
     // window.set_all_polling(true);
     window.set_key_polling(true);
     window.set_framebuffer_size_polling(true);
-    window.make_current();
+    window.set_pos_polling(true);
 
     let mut state = State::new(&mut window).await;
 
     while !state.window.should_close() {
+        let start_time = std::time::Instant::now();
         glfw.poll_events();
         for (_, event) in glfw::flush_messages(&events) {
             match event {
@@ -168,7 +162,11 @@ async fn run()
                     state.resize((width, height));
             
                 }
+                glfw::WindowEvent::Pos(..) =>{
+                    // state.update_surface();
+                    // state.resize(state.size);
 
+                }
                 e => {
                     println!("{:?}", e);
                 }
@@ -185,8 +183,13 @@ async fn run()
             Err(e) => {eprintln!("{:?}", e)},
         }
         
-        state.window.swap_buffers();
-        sleep(time::Duration::from_micros(56000));
+        // state.window.swap_buffers();
+        let frame_time = start_time.elapsed();
+        let sleep_time = time::Duration::from_secs_f32(1.0) / 60;
+        if sleep_time > frame_time
+        {
+            sleep(sleep_time - frame_time);
+        }
     }
 }
 
