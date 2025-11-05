@@ -6,7 +6,7 @@ use wgpu::{wgc::{device::queue, instance}};
 
 mod renderer_backend;
 
-use renderer_backend::pipline_builder::PiplineBuilder;
+use renderer_backend::pipeline_builder::PipelineBuilder;
 
 
 struct State<'a> {
@@ -68,7 +68,7 @@ impl<'a> State<'a>
         };
         surface.configure(&device, &config);
 
-        let mut pipeline_builder = PiplineBuilder::new();
+        let mut pipeline_builder = PipelineBuilder::new();
         pipeline_builder.set_shader_module("shaders/shader.wgsl", "vs_main", "fs_main");
         pipeline_builder.set_pixel_format(config.format);
         let render_pipeline = pipeline_builder.build_pipline(&device);
@@ -192,11 +192,12 @@ async fn run()
         match state.render()
         {
             Ok(_) => {},
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            Err(e @ (wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated)) => {
                 state.update_surface();
                 state.resize(state.size);
+                println!("error: {:?}, auto fixing", e);
             }
-            Err(e) => {eprintln!("{:?}", e)},
+            Err(e) => {println!("{:?}", e)},
         }
         
         // state.window.swap_buffers();
@@ -205,6 +206,7 @@ async fn run()
         if sleep_time > frame_time
         {
             sleep(sleep_time - frame_time);
+            println!("sleep time: {:?}, frame rate: {:?}", sleep_time - frame_time, time::Duration::from_secs_f32(1.0).div_duration_f32(sleep_time - frame_time));
         }
     }
 }

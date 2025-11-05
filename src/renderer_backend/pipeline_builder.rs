@@ -3,7 +3,7 @@ use std::fs;
 
 use wgpu::wgc::pipeline;
 
-pub struct PiplineBuilder
+pub struct PipelineBuilder
 {
     shader_filename: String,
     vertex_entry: String,
@@ -11,10 +11,10 @@ pub struct PiplineBuilder
     pixel_format: wgpu::TextureFormat,
 }
 
-impl PiplineBuilder {
+impl PipelineBuilder {
     pub fn new() -> Self
     {
-        PiplineBuilder { 
+        PipelineBuilder { 
             shader_filename: "dummy".to_string(), 
             vertex_entry: "dummy".to_string(), 
             fragment_entry: "dummy".to_string(), 
