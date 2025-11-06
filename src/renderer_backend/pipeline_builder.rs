@@ -1,7 +1,8 @@
 use std::env::current_dir;
 use std::fs;
 
-use wgpu::wgc::pipeline;
+// Embed shader at compile time for Android compatibility
+const SHADER_SOURCE: &str = include_str!("../shaders/shader.wgsl");
 
 pub struct PipelineBuilder
 {
@@ -9,6 +10,7 @@ pub struct PipelineBuilder
     vertex_entry: String,
     fragment_entry: String,
     pixel_format: wgpu::TextureFormat,
+    use_embedded_shader: bool,
 }
 
 impl PipelineBuilder {
@@ -18,7 +20,11 @@ impl PipelineBuilder {
             shader_filename: "dummy".to_string(), 
             vertex_entry: "dummy".to_string(), 
             fragment_entry: "dummy".to_string(), 
-            pixel_format: wgpu::TextureFormat::Rgba8Unorm 
+            pixel_format: wgpu::TextureFormat::Rgba8Unorm,
+            #[cfg(target_os = "android")]
+            use_embedded_shader: true,
+            #[cfg(not(target_os = "android"))]
+            use_embedded_shader: false,
         }
     }
 
@@ -44,11 +50,17 @@ impl PipelineBuilder {
 
     pub fn build_pipline(&mut self, device: &wgpu::Device) -> wgpu::RenderPipeline
     {
-        let mut filepath = current_dir().unwrap();
-        filepath.push("src/");
-        filepath.push(self.shader_filename.as_str());
-        let filepath = filepath.into_os_string().into_string().unwrap();
-        let source_code = fs::read_to_string(filepath).expect("can't read shader file");
+        let source_code = if self.use_embedded_shader {
+            // Use embedded shader for Android
+            SHADER_SOURCE.to_string()
+        } else {
+            // Read shader from file for desktop
+            let mut filepath = current_dir().unwrap();
+            filepath.push("src/");
+            filepath.push(self.shader_filename.as_str());
+            let filepath = filepath.into_os_string().into_string().unwrap();
+            fs::read_to_string(filepath).expect("can't read shader file")
+        };
 
         let shader_module_descriptor = wgpu::ShaderModuleDescriptor
         {

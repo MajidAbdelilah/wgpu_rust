@@ -1,41 +1,64 @@
-use core::time;
-use std::{thread::sleep};
-
-use glfw::{Action, Context, Key, Window, WindowEvent, WindowHint, fail_on_errors};
-use wgpu::{wgc::{device::queue, instance}};
+use std::sync::Arc;
+use winit::application::ApplicationHandler;
+use winit::event::{WindowEvent, KeyEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::window::{Window, WindowId};
+use winit::keyboard::{PhysicalKey, KeyCode};
 
 mod renderer_backend;
 
 use renderer_backend::pipeline_builder::PipelineBuilder;
 
+#[cfg(target_os = "android")]
+use winit::platform::android::activity::AndroidApp;
 
-struct State<'a> {
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app: AndroidApp) {
+    use winit::platform::android::EventLoopBuilderExtAndroid;
+    
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
+    );
+    
+    let event_loop = EventLoop::builder()
+        .with_android_app(app)
+        .build()
+        .unwrap();
+    
+    run_event_loop(event_loop);
+}
+
+
+struct State {
     instance: wgpu::Instance,
-    surface: wgpu::Surface<'a>,
+    surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    size: (i32, i32),
-    window: &'a mut Window,
+    size: (u32, u32),
+    window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
 }
 
-impl<'a> State<'a> 
+impl State 
 {
-
-    async fn new(window: &'a mut Window) -> Self 
+    async fn new(window: Arc<Window>) -> Self 
     {
-        let size = window.get_framebuffer_size();
+        let size = window.inner_size();
+        let size = (size.width.max(1), size.height.max(1));
 
         let instance_descriptor = wgpu::InstanceDescriptor {
+            #[cfg(target_os = "android")]
+            backends: wgpu::Backends::VULKAN,
+            #[cfg(not(target_os = "android"))]
             backends: wgpu::Backends::all(),
             ..Default::default()
         };
         let instance = wgpu::Instance::new(&instance_descriptor);
-        println!("bitch!!!");
-        ;
-        let surface = instance.create_surface(window.render_context()).unwrap();
-        // let surface = instance.create_surface(window.render_context()).unwrap();
+        
+        log::info!("Creating surface...");
+        let surface = instance.create_surface(window.clone()).unwrap();
 
         let adapter_descriptor = wgpu::RequestAdapterOptionsBase{
             power_preference: wgpu::PowerPreference::default(),
@@ -59,8 +82,8 @@ impl<'a> State<'a>
         let config = wgpu::SurfaceConfiguration{
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: size.0 as u32,
-            height: size.1 as u32,
+            width: size.0,
+            height: size.1,
             present_mode: surface_capabilities.present_modes[0],
             alpha_mode: surface_capabilities.alpha_modes[0],
             view_formats: vec![],
@@ -125,93 +148,150 @@ impl<'a> State<'a>
         Ok(())
     }
 
-    fn resize(&mut self, new_size: (i32, i32))
+    fn resize(&mut self, new_size: (u32, u32))
     {
-        if(new_size.0 <= 0 || new_size.1 <= 0)
+        if new_size.0 == 0 || new_size.1 == 0
         {
             return;
         }
         
         self.size = new_size;
-        self.config.width = new_size.0 as u32;
-        self.config.height = new_size.1 as u32;
+        self.config.width = new_size.0;
+        self.config.height = new_size.1;
 
         self.surface.configure(&self.device, &self.config);
+        log::info!("Resized to {}x{}", new_size.0, new_size.1);
     }
 
     fn update_surface(&mut self)
     {
-        self.surface = self.instance.create_surface(self.window.render_context()).unwrap();
+        self.surface = self.instance.create_surface(self.window.clone()).unwrap();
+        self.surface.configure(&self.device, &self.config);
+    }
+    
+    fn input(&mut self, event: &WindowEvent) -> bool
+    {
+        match event {
+            WindowEvent::KeyboardInput { 
+                event: KeyEvent {
+                    physical_key: PhysicalKey::Code(KeyCode::Escape),
+                    ..
+                },
+                ..
+            } => {
+                log::info!("Escape pressed, closing...");
+                return true;
+            }
+            _ => false,
+        }
     }
 }
 
-async fn run() 
-{
-    let mut glfw = glfw::init(fail_on_errors!()).unwrap();
-    glfw.window_hint(WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
+struct App {
+    state: Option<State>,
+}
 
-    // glfw.window_hint(WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
-    let (mut window, events) = glfw
-        .create_window(800, 600, "wgpu", glfw::WindowMode::Windowed).unwrap();
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        log::info!("App resumed");
         
-
-    // window.set_all_polling(true);
-    window.set_key_polling(true);
-    window.set_framebuffer_size_polling(true);
-    window.set_pos_polling(true);
-
-    let mut state = State::new(&mut window).await;
-
-    while !state.window.should_close() {
-        let start_time = std::time::Instant::now();
-        glfw.poll_events();
-        for (_, event) in glfw::flush_messages(&events) {
-            match event {
-                glfw::WindowEvent::Key(glfw::Key::Escape, _, glfw::Action::Press, _) => 
-                {
-                    state.window.set_should_close(true);
-                }
-
-                glfw::WindowEvent::FramebufferSize(width, height ) =>
-                {
-                    state.update_surface();
-                    state.resize((width, height));
+        if self.state.is_none() {
+            let window_attributes = Window::default_attributes()
+                .with_title("wgpu Rust")
+                .with_inner_size(winit::dpi::LogicalSize::new(800, 600));
             
-                }
-                glfw::WindowEvent::Pos(..) =>{
-                    // state.update_surface();
-                    // state.resize(state.size);
+            let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+            log::info!("Window created");
+            
+            // Create state asynchronously
+            let state = pollster::block_on(State::new(window));
+            self.state = Some(state);
+            log::info!("State initialized");
+        }
+    }
 
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        log::info!("App suspended");
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        if let Some(state) = &mut self.state {
+            // Handle input
+            if state.input(&event) {
+                event_loop.exit();
+                return;
+            }
+
+            match event {
+                WindowEvent::CloseRequested => {
+                    log::info!("Close requested");
+                    event_loop.exit();
                 }
-                e => {
-                    println!("{:?}", e);
+                
+                WindowEvent::Resized(physical_size) => {
+                    log::info!("Resized to {:?}", physical_size);
+                    state.resize((physical_size.width, physical_size.height));
                 }
+                
+                WindowEvent::RedrawRequested => {
+                    match state.render() {
+                        Ok(_) => {},
+                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                            log::warn!("Surface error, recreating...");
+                            state.update_surface();
+                            state.resize(state.size);
+                        }
+                        Err(wgpu::SurfaceError::OutOfMemory) => {
+                            log::error!("Out of memory!");
+                            event_loop.exit();
+                        }
+                        Err(e) => {
+                            log::error!("Render error: {:?}", e);
+                        }
+                    }
+                    
+                    // Request next frame
+                    state.window.request_redraw();
+                }
+                
+                _ => {}
             }
         }
-        
-        match state.render()
-        {
-            Ok(_) => {},
-            Err(e @ (wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated)) => {
-                state.update_surface();
-                state.resize(state.size);
-                println!("error: {:?}, auto fixing", e);
-            }
-            Err(e) => {println!("{:?}", e)},
-        }
-        
-        // state.window.swap_buffers();
-        let frame_time = start_time.elapsed();
-        let sleep_time = time::Duration::from_secs_f32(1.0) / 60;
-        if sleep_time > frame_time
-        {
-            sleep(sleep_time - frame_time);
-            println!("sleep time: {:?}, frame rate: {:?}", sleep_time - frame_time, time::Duration::from_secs_f32(1.0).div_duration_f32(sleep_time - frame_time));
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(state) = &self.state {
+            state.window.request_redraw();
         }
     }
 }
 
-fn main()
-{
-    pollster::block_on(run());
+fn run_event_loop(event_loop: EventLoop<()>) {
+    let mut app = App { state: None };
+    
+    event_loop.set_control_flow(ControlFlow::Poll);
+    
+    match event_loop.run_app(&mut app) {
+        Ok(_) => log::info!("Event loop exited normally"),
+        Err(e) => log::error!("Event loop error: {:?}", e),
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn main() {
+    env_logger::init();
+    log::info!("Starting wgpu application...");
+    
+    let event_loop = EventLoop::new().unwrap();
+    run_event_loop(event_loop);
+}
+
+#[cfg(target_os = "android")]
+fn main() {
+    // Android entry point is android_main, this is never called
 }

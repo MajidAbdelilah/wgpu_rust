@@ -1,9 +1,52 @@
 [package]
 name = "wgpu_rust"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+# Disable all automatic target discovery
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+# Binary target for desktop platforms (used with: cargo run)
+[[bin]]
+name = "wgpu_rust"
+path = "src/main.rs"
+
+# Library target for Android (used with: cargo apk build)
+[lib]
+name = "wgpu_rust"
+crate-type = ["cdylib"]
+path = "src/main.rs"
 
 [dependencies]
-glfw = "0.59"
-wgpu = "27.0.1"
-pollster = "0.4.0"
+wgpu = "27.0"
+pollster = "0.4"
+winit = "0.30"
+log = "0.4"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+env_logger = "0.11"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.14"
+ndk-glue = { version = "0.7", features = ["logger"] }
+android-activity = { version = "0.6", features = ["native-activity"] }
+
+[package.metadata.android]
+package = "com.example.wgpu_rust"
+build_targets = ["aarch64-linux-android", "armv7-linux-androideabi"]
+
+[package.metadata.android.sdk]
+min_sdk_version = 26
+target_sdk_version = 35
+max_sdk_version = 35
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[[package.metadata.android.uses_feature]]
+name = "android.hardware.vulkan.level"
+required = true
+version = 1
