@@ -1,4 +1,6 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use std::thread::sleep;
 use winit::application::ApplicationHandler;
 use winit::event::{WindowEvent, KeyEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -8,7 +10,7 @@ use winit::keyboard::{PhysicalKey, KeyCode};
 mod renderer_backend;
 
 use renderer_backend::pipeline_builder::PipelineBuilder;
-
+use renderer_backend::mesh_builder;
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
 
@@ -39,6 +41,7 @@ struct State {
     size: (u32, u32),
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
+    triangle_mesh: wgpu::Buffer
 }
 
 impl State 
@@ -51,7 +54,11 @@ impl State
         let instance_descriptor = wgpu::InstanceDescriptor {
             #[cfg(target_os = "android")]
             backends: wgpu::Backends::VULKAN,
-            #[cfg(not(target_os = "android"))]
+            #[cfg(target_os = "windows")]
+            backends: wgpu::Backends::DX12,
+            #[cfg(target_os = "linux")]
+            backends: wgpu::Backends::VULKAN,
+            #[cfg(not(any(target_os = "android", target_os = "windows", target_os = "linux")))]
             backends: wgpu::Backends::all(),
             ..Default::default()
         };
@@ -91,7 +98,10 @@ impl State
         };
         surface.configure(&device, &config);
 
+        let triangle_mesh = mesh_builder::make_triangle(&device);
+
         let mut pipeline_builder = PipelineBuilder::new();
+        pipeline_builder.add_vertex_buffer_layouts(mesh_builder::Vertex::get_layout());
         pipeline_builder.set_shader_module("shaders/shader.wgsl", "vs_main", "fs_main");
         pipeline_builder.set_pixel_format(config.format);
         let render_pipeline = pipeline_builder.build_pipline(&device);
@@ -104,7 +114,8 @@ impl State
             config,
             size,
             window,
-            render_pipeline
+            render_pipeline,
+            triangle_mesh,
         }
     }
 
@@ -139,6 +150,7 @@ impl State
         {
             let mut render_pass = command_encoder.begin_render_pass(&render_pass_descriptor);
             render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.triangle_mesh.slice(..));
             render_pass.draw(0..3, 0..1);
         }
         self.queue.submit(std::iter::once(command_encoder.finish()));
@@ -189,6 +201,7 @@ impl State
 
 struct App {
     state: Option<State>,
+    last_frame_time: Instant,
 }
 
 impl ApplicationHandler for App {
@@ -239,6 +252,9 @@ impl ApplicationHandler for App {
                 }
                 
                 WindowEvent::RedrawRequested => {
+                    let start_time = Instant::now();
+                    
+                    // Render frame
                     match state.render() {
                         Ok(_) => {},
                         Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -253,6 +269,31 @@ impl ApplicationHandler for App {
                         Err(e) => {
                             log::error!("Render error: {:?}", e);
                         }
+                    }
+                    
+                    // Frame timing
+                    let frame_time = start_time.elapsed();
+                    let target_frame_time = Duration::from_secs_f32(1.0 / 60.0);
+                    
+                    if target_frame_time > frame_time {
+                        let sleep_time = target_frame_time - frame_time;
+                        sleep(sleep_time);
+                        
+                        let total_frame_time = start_time.elapsed();
+                        let fps = 1.0 / total_frame_time.as_secs_f32();
+                        log::debug!(
+                            "Frame time: {:.2}ms, Sleep time: {:.2}ms, FPS: {:.1}",
+                            frame_time.as_secs_f32() * 1000.0,
+                            sleep_time.as_secs_f32() * 1000.0,
+                            fps
+                        );
+                    } else {
+                        let fps = 1.0 / frame_time.as_secs_f32();
+                        log::debug!(
+                            "Frame time: {:.2}ms (no sleep), FPS: {:.1}",
+                            frame_time.as_secs_f32() * 1000.0,
+                            fps
+                        );
                     }
                     
                     // Request next frame
@@ -272,7 +313,10 @@ impl ApplicationHandler for App {
 }
 
 fn run_event_loop(event_loop: EventLoop<()>) {
-    let mut app = App { state: None };
+    let mut app = App { 
+        state: None,
+        last_frame_time: Instant::now(),
+    };
     
     event_loop.set_control_flow(ControlFlow::Poll);
     

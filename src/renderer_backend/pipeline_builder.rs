@@ -11,6 +11,7 @@ pub struct PipelineBuilder
     fragment_entry: String,
     pixel_format: wgpu::TextureFormat,
     use_embedded_shader: bool,
+    vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
 }
 
 impl PipelineBuilder {
@@ -25,6 +26,7 @@ impl PipelineBuilder {
             use_embedded_shader: true,
             #[cfg(not(target_os = "android"))]
             use_embedded_shader: false,
+            vertex_buffer_layouts: Vec::new(),
         }
     }
 
@@ -46,6 +48,14 @@ impl PipelineBuilder {
     )
     {
         self.pixel_format = pixel_format;
+    }
+
+    pub fn add_vertex_buffer_layouts(
+        &mut self,
+        layout: wgpu::VertexBufferLayout<'static>
+    )
+    {
+        self.vertex_buffer_layouts.push(layout);
     }
 
     pub fn build_pipline(&mut self, device: &wgpu::Device) -> wgpu::RenderPipeline
@@ -94,7 +104,7 @@ impl PipelineBuilder {
             {
                 module: &shader_module,
                 entry_point: Some(&self.vertex_entry),
-                buffers: &[],
+                buffers: &self.vertex_buffer_layouts,
                 compilation_options: wgpu::PipelineCompilationOptions::default()
             },
 
