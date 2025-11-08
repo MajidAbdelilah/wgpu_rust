@@ -41,7 +41,7 @@ struct State {
     size: (u32, u32),
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
-    triangle_mesh: wgpu::Buffer
+    quad_mesh: mesh_builder::Mesh,
 }
 
 impl State 
@@ -98,7 +98,7 @@ impl State
         };
         surface.configure(&device, &config);
 
-        let triangle_mesh = mesh_builder::make_triangle(&device);
+        let quad_mesh = mesh_builder::make_quad(&device);
 
         let mut pipeline_builder = PipelineBuilder::new();
         pipeline_builder.add_vertex_buffer_layouts(mesh_builder::Vertex::get_layout());
@@ -115,7 +115,7 @@ impl State
             size,
             window,
             render_pipeline,
-            triangle_mesh,
+            quad_mesh,
         }
     }
 
@@ -150,8 +150,12 @@ impl State
         {
             let mut render_pass = command_encoder.begin_render_pass(&render_pass_descriptor);
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.triangle_mesh.slice(..));
-            render_pass.draw(0..3, 0..1);
+           
+            render_pass.set_vertex_buffer(0, self.quad_mesh.vertex_buffer.slice(..));
+           
+            render_pass.set_index_buffer(self.quad_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            
+            render_pass.draw_indexed(0..6, 0, 0..1);
         }
         self.queue.submit(std::iter::once(command_encoder.finish()));
 
@@ -245,7 +249,7 @@ impl ApplicationHandler for App {
                     log::info!("Close requested");
                     event_loop.exit();
                 }
-                
+
                 WindowEvent::Resized(physical_size) => {
                     log::info!("Resized to {:?}", physical_size);
                     state.resize((physical_size.width, physical_size.height));
@@ -281,19 +285,20 @@ impl ApplicationHandler for App {
                         
                         let total_frame_time = start_time.elapsed();
                         let fps = 1.0 / total_frame_time.as_secs_f32();
-                        log::debug!(
-                            "Frame time: {:.2}ms, Sleep time: {:.2}ms, FPS: {:.1}",
-                            frame_time.as_secs_f32() * 1000.0,
-                            sleep_time.as_secs_f32() * 1000.0,
-                            fps
-                        );
+                        
+                        // log::debug!(
+                        //     "Frame time: {:.2}ms, Sleep time: {:.2}ms, FPS: {:.1}",
+                        //     frame_time.as_secs_f32() * 1000.0,
+                        //     sleep_time.as_secs_f32() * 1000.0,
+                        //     fps
+                        // );
                     } else {
                         let fps = 1.0 / frame_time.as_secs_f32();
-                        log::debug!(
-                            "Frame time: {:.2}ms (no sleep), FPS: {:.1}",
-                            frame_time.as_secs_f32() * 1000.0,
-                            fps
-                        );
+                        // log::debug!(
+                        //     "Frame time: {:.2}ms (no sleep), FPS: {:.1}",
+                        //     frame_time.as_secs_f32() * 1000.0,
+                        //     fps
+                        // );
                     }
                     
                     // Request next frame
@@ -317,6 +322,7 @@ fn run_event_loop(event_loop: EventLoop<()>) {
         state: None,
         last_frame_time: Instant::now(),
     };
+    log::debug!("last_frame_time: {:?}", app.last_frame_time);
     
     event_loop.set_control_flow(ControlFlow::Poll);
     

@@ -8,6 +8,15 @@ pub struct Vertex
     color: [f32; 3],
 }
 
+pub struct Mesh
+{
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub num_of_vertices: u32,
+    pub num_of_indices: u32,
+
+}
+
 impl Vertex
 {
     pub fn get_layout() -> wgpu::VertexBufferLayout<'static>
@@ -36,9 +45,9 @@ impl Vertex
     }
 }
 
-pub fn make_triangle(device: &wgpu::Device) -> wgpu::Buffer
+pub fn make_quad(device: &wgpu::Device) -> Mesh
 {
-    let vertices: [Vertex; 3] = [
+    let vertices: [Vertex; 4] = [
         Vertex {
             position: [-0.75, -0.75, 0.0],
             color: [1.0, 0.0, 0.0],
@@ -48,18 +57,41 @@ pub fn make_triangle(device: &wgpu::Device) -> wgpu::Buffer
             color: [0.0, 1.0, 0.0],
         },
         Vertex {
-            position: [0.0, 0.75, 0.0],
+            position: [0.75, 0.75, 0.0],
             color: [0.0, 0.0, 1.0],
+        },
+        Vertex {
+            position: [-0.75, 0.75, 0.0],
+            color: [0.0, 1.0, 1.0],
         },
     ];
     
-    let buffer_init_descriptor = wgpu::util::BufferInitDescriptor 
+    let vertex_buffer_init_descriptor = wgpu::util::BufferInitDescriptor 
     {
-        label: Some("triangle vertex buffer"),
+        label: Some("quad vertex buffer"),
         contents: bytemuck::cast_slice(&vertices),
         usage: wgpu::BufferUsages::VERTEX,
     };
 
-    let buffer_init = device.create_buffer_init(&buffer_init_descriptor);
-    return buffer_init;
+    let vertex_buffer_init = device.create_buffer_init(&vertex_buffer_init_descriptor);
+
+    let indices: [u32; 6] = [
+        0, 1, 2, 2, 3, 0
+    ];
+    
+    let index_buffer_init_descriptor = wgpu::util::BufferInitDescriptor 
+    {
+        label: Some("quad index buffer"),
+        contents: bytemuck::cast_slice(&indices),
+        usage: wgpu::BufferUsages::INDEX,
+    };
+
+    let index_buffer_init = device.create_buffer_init(&index_buffer_init_descriptor);
+    
+    return Mesh{
+        vertex_buffer: vertex_buffer_init,
+        index_buffer: index_buffer_init,
+        num_of_vertices: 4,
+        num_of_indices: 6,
+    };
 }
